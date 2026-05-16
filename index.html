@@ -187,21 +187,40 @@
     </div>
   </div>
 
-  <script type="module" src="js/auth.js"></script>
-  <script type="module">
-    import { DISCORD_CLIENT_ID, REDIRECT_URI } from './js/config.js';
+  <script>
+    const DISCORD_CLIENT_ID = '1505290476343787651';
+    const REDIRECT_URI = 'https://ereinis.github.io/hrdbujina/callback.html';
+
+    function showLoginError(message) {
+      const box = document.getElementById('error-msg');
+      box.textContent = message;
+      box.style.display = 'block';
+    }
+
+    function createState() {
+      if (window.crypto?.randomUUID) return crypto.randomUUID();
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     document.getElementById('loginBtn').addEventListener('click', (e) => {
       e.preventDefault();
-      const state = crypto.randomUUID();
-      sessionStorage.setItem('oauth_state', state);
-      const params = new URLSearchParams({
-        client_id: DISCORD_CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
-        response_type: 'token',
-        scope: 'identify guilds.members.read',
-        state
-      });
-      window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
+
+      try {
+        const state = createState();
+        sessionStorage.setItem('oauth_state', state);
+        const params = new URLSearchParams({
+          client_id: DISCORD_CLIENT_ID,
+          redirect_uri: REDIRECT_URI,
+          response_type: 'token',
+          scope: 'identify guilds.members.read',
+          state
+        });
+        window.location.assign(`https://discord.com/api/oauth2/authorize?${params}`);
+      } catch (error) {
+        showLoginError(`Could not start Discord login: ${error.message}`);
+      }
     });
   </script>
 </body>
