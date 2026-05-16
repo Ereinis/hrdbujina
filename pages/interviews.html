@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Interviews - HR Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .page-grid { display:grid; grid-template-columns:420px 1fr; gap:24px; align-items:start; }
+    @media(max-width:1100px) { .page-grid { grid-template-columns:1fr; } }
+    .score-row { display:grid; grid-template-columns:1fr 72px; gap:10px; align-items:center; }
+    .score-row .form-input { text-align:center; }
+    .result-pill { display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:999px;font-family:'DM Mono',monospace;font-size:11px; }
+    .result-pass { color:var(--accent);background:var(--accent-glow);border:1px solid var(--border-strong); }
+    .result-fail { color:var(--danger);background:var(--danger-dim);border:1px solid rgba(239,68,68,0.2); }
+  </style>
+</head>
+<body>
+<script type="module">
+import { initLayout } from '../js/layout.js';
+import { initFirebase } from '../js/firebase.js';
+import { hasPermission } from '../js/auth.js';
+import { CAN_ADD_INTERVIEWS, CAN_DELETE_INTERVIEWS } from '../js/config.js';
+import { toast } from '../js/toast.js';
+
+const SCORE_FIELDS = [
+  ['commitmentMotivation', 'Commitment & Motivation'],
+  ['hrKnowledgeProfessionalism', 'HR Knowledge & Professionalism'],
+  ['hiringDecisionMaking', 'Hiring & Decision-Making Skills'],
+  ['conflictResolutionIntegrity', 'Conflict Resolution & Integrity']
+];
+
+let session, db;
+let allInterviews = [];
+
+(async () => {
+  try {
+    session = await initLayout('Interviews', 'interviews');
+    if (!session) return;
+
+    ({ db } = await initFirebase());
+
+    const canAdd = hasPermission(session, CAN_ADD_INTERVIEWS);
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="${canAdd ? 'page-grid' : ''}">
+        ${canAdd ? `
+        <div class="card" style="position:sticky;top:80px;">
+          <div class="card-header" style="margin-bottom:24px;">
+            <div>
+              <div class="card-title">Log Interview</div>
+              <div class="card-subtitle">Scores are calculated out of 40</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="form-group">
+              <label class="form-label">Interviewer ID <span class="req">*</span></label>
+              <input type="text" class="form-input" id="interviewer-id" placeholder="HR, PR, or OPS member ID">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Interviewee ID <span class="req">*</span></label>
+              <input type="text" class="form-input" id="interviewee-id" placeholder="Interviewee user ID">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Type of Interview <span class="req">*</span></label>
+              <select class="form-select" id="interview-type">
+                <option value="MR">MR</option>
+                <option value="HR">HR</option>
+              </select>
+            </div>
+
+            ${SCORE_FIELDS.map(([id, label]) => `
+              <div class="form-group">
+                <label class="form-label">${label} <span class="req">*</span></label>
+                <div class="score-row">
+                  <input type="range" min="1" max="10" value="1" id="${id}-range" data-score="${id}">
+                  <input type="number" min="1" max="10" value="1" class="form-input" id="${id}" data-score="${id}">
+                </div>
+              </div>
+            `).join('')}
+
+            <div class="form-group">
+              <label class="form-label">Final Results</label>
+              <input type="text" class="form-input readonly" id="final-results" value="4/40" readonly>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Pass/Fail <span class="req">*</span></label>
+              <select class="form-select" id="pass-fail">
+                <option value="Pass">Pass</option>
+                <option value="Fail">Fail</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary" id="submit-interview">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8h12M10 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Log Interview
+            </button>
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Interview Logs</div>
+              <div class="card-subtitle" id="interview-count">Loading...</div>
+            </div>
+            <input type="text" id="interview-search" class="form-input" placeholder="Search interviews..." style="width:220px;padding:8px 12px;font-size:13px;">
+          </div>
+          <div id="interviews-table-wrap">
+            <div style="text-align:center;padding:32px;color:var(--text-muted);">
+              <div class="spinner" style="margin:0 auto 12px;"></div>
+              <p style="font-size:13px;">Loading interviews...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-overlay hidden" id="delete-modal">
+        <div class="modal">
+          <div class="modal-title" style="color:var(--danger);">Delete Interview</div>
+          <div class="modal-body">This will permanently delete the interview log. Only Presidents and Vice Presidents may delete interviews.</div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" id="cancel-delete">Cancel</button>
+            <button class="btn btn-danger" id="confirm-delete">Delete Interview</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (canAdd) setupForm();
+    await loadInterviews();
+
+    document.getElementById('interview-search').addEventListener('input', e => {
+      const q = e.target.value.toLowerCase();
+      renderInterviews(allInterviews.filter(item =>
+        item.interviewerId?.toLowerCase().includes(q) ||
+        item.intervieweeId?.toLowerCase().includes(q) ||
+        item.type?.toLowerCase().includes(q) ||
+        item.result?.toLowerCase().includes(q)
+      ));
+    });
+  } catch (e) {
+    document.body.innerHTML = `<div class="empty-state" style="padding:48px;"><p>Failed to load interviews page: ${escHtml(e.message)}</p></div>`;
+  }
+})();
+
+function setupForm() {
+  document.querySelectorAll('[data-score]').forEach(input => {
+    input.addEventListener('input', () => syncScore(input));
+  });
+
+  document.getElementById('submit-interview').addEventListener('click', async () => {
+    const interviewerId = document.getElementById('interviewer-id').value.trim();
+    const intervieweeId = document.getElementById('interviewee-id').value.trim();
+    const type = document.getElementById('interview-type').value;
+    const result = document.getElementById('pass-fail').value;
+    const scores = getScores();
+
+    if (!interviewerId) { toast('Please enter the interviewer ID.', 'error'); return; }
+    if (!intervieweeId) { toast('Please enter the interviewee ID.', 'error'); return; }
+
+    const btn = document.getElementById('submit-interview');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Logging...';
+
+    try {
+      await db.collection('interviews').add({
+        interviewerId,
+        intervieweeId,
+        type,
+        scores,
+        finalScore: totalScore(scores),
+        result,
+        loggedBy: session.username,
+        loggerId: session.id,
+        loggerRole: session.roleName,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      toast('Interview logged successfully.', 'success');
+      resetForm();
+      await loadInterviews();
+    } catch (e) {
+      toast('Failed to log interview: ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8h12M10 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg> Log Interview`;
+  });
+}
+
+function syncScore(input) {
+  const id = input.dataset.score;
+  const value = clampScore(input.value);
+  document.getElementById(id).value = value;
+  document.getElementById(`${id}-range`).value = value;
+  updateFinalScore();
+}
+
+function getScores() {
+  return Object.fromEntries(SCORE_FIELDS.map(([id]) => [id, clampScore(document.getElementById(id).value)]));
+}
+
+function totalScore(scores) {
+  return Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function updateFinalScore() {
+  document.getElementById('final-results').value = `${totalScore(getScores())}/40`;
+}
+
+function resetForm() {
+  document.getElementById('interviewer-id').value = '';
+  document.getElementById('interviewee-id').value = '';
+  document.getElementById('interview-type').value = 'MR';
+  document.getElementById('pass-fail').value = 'Pass';
+  SCORE_FIELDS.forEach(([id]) => {
+    document.getElementById(id).value = 1;
+    document.getElementById(`${id}-range`).value = 1;
+  });
+  updateFinalScore();
+}
+
+async function loadInterviews() {
+  try {
+    const snap = await db.collection('interviews').orderBy('createdAt', 'desc').get();
+    allInterviews = snap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+    document.getElementById('interview-count').textContent = `${allInterviews.length} interview${allInterviews.length === 1 ? '' : 's'} total`;
+    renderInterviews(allInterviews);
+  } catch (e) {
+    document.getElementById('interviews-table-wrap').innerHTML = `<div class="empty-state"><p>Error: ${escHtml(e.message)}</p></div>`;
+  }
+}
+
+function renderInterviews(interviews) {
+  const canDelete = hasPermission(session, CAN_DELETE_INTERVIEWS);
+  const wrap = document.getElementById('interviews-table-wrap');
+
+  if (!interviews.length) {
+    wrap.innerHTML = `<div class="empty-state"><p>No interviews logged yet.</p></div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Interviewer</th>
+            <th>Interviewee</th>
+            <th>Type</th>
+            <th>Score</th>
+            <th>Result</th>
+            <th>Logged by</th>
+            <th>Date</th>
+            ${canDelete ? '<th></th>' : ''}
+          </tr>
+        </thead>
+        <tbody>
+          ${interviews.map(item => {
+            const date = item.createdAt?.toDate ? item.createdAt.toDate() : new Date(0);
+            const dateStr = date.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+            const resultClass = item.result === 'Pass' ? 'result-pass' : 'result-fail';
+
+            return `<tr>
+              <td style="color:var(--text-primary);font-family:'DM Mono',monospace;font-size:12px;">${escHtml(item.interviewerId)}</td>
+              <td style="color:var(--text-primary);font-family:'DM Mono',monospace;font-size:12px;">${escHtml(item.intervieweeId)}</td>
+              <td><span class="badge">${escHtml(item.type)}</span></td>
+              <td><span class="mono" style="color:var(--accent);">${Number(item.finalScore || 0)}/40</span></td>
+              <td><span class="result-pill ${resultClass}">${escHtml(item.result)}</span></td>
+              <td><span style="font-size:12px;color:var(--text-secondary);">${escHtml(item.loggedBy || 'Unknown')}</span><br><span style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;">${escHtml(item.loggerRole || '')}</span></td>
+              <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${dateStr}</td>
+              ${canDelete ? `<td><button class="btn btn-danger btn-sm delete-interview-btn" data-id="${item._docId}">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Delete
+              </button></td>` : ''}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.querySelectorAll('.delete-interview-btn').forEach(btn => {
+    btn.addEventListener('click', () => openDeleteModal(btn.dataset.id));
+  });
+}
+
+let deleteTargetId = null;
+function openDeleteModal(docId) {
+  deleteTargetId = docId;
+  const modal = document.getElementById('delete-modal');
+  modal.classList.remove('hidden');
+  document.getElementById('cancel-delete').onclick = () => { modal.classList.add('hidden'); deleteTargetId = null; };
+  document.getElementById('confirm-delete').onclick = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await db.collection('interviews').doc(deleteTargetId).delete();
+      toast('Interview deleted.', 'success');
+      modal.classList.add('hidden');
+      deleteTargetId = null;
+      await loadInterviews();
+    } catch (e) {
+      toast('Failed to delete interview: ' + e.message, 'error');
+    }
+  };
+}
+
+function clampScore(value) {
+  const score = Number.parseInt(value, 10);
+  if (Number.isNaN(score)) return 1;
+  return Math.min(10, Math.max(1, score));
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 // layout.js — Injects sidebar, topbar, and toast container into protected pages
 import { requireAuth, logout, hasPermission } from '../js/auth.js';
-import { ROLES, CAN_MANAGE_TRANSCRIPTS } from '../js/config.js';
+import { CAN_MANAGE_TRANSCRIPTS } from '../js/config.js';
 
 export async function initLayout(pageTitle, activeNav) {
   // Show loader
@@ -57,6 +57,10 @@ export async function initLayout(pageTitle, activeNav) {
           <a href="disciplinary.html" class="nav-item ${activeNav === 'disciplinary' ? 'active' : ''}">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2L2 5v4c0 3 2.5 5.2 6 6 3.5-.8 6-3 6-6V5L8 2z"/><path d="M5.5 8l2 2 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Disciplinary Actions
+          </a>
+          <a href="interviews.html" class="nav-item ${activeNav === 'interviews' ? 'active' : ''}">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h10v10H3z"/><path d="M5 6h6M5 9h4M2 13h12" stroke-linecap="round"/></svg>
+            Interviews
           </a>
         </nav>
 

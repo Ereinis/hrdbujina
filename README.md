@@ -144,9 +144,12 @@ transcripts/
 | Executive Director  | 1448500020625281085   |
 | Executive Officer   | 1448500129140314122   |
 | Executive Assistant | 1448500158617747466   |
+| Chairman            | 1448496065119518762   |
+| Vice Chairman       | 1448497242515439706   |
 | Human Resources     | 1455280224412631094   |
 
 All users **must** have both a rank role AND the HR role to access the portal.
+Chairman and Vice Chairman can view all portal pages but cannot create, upload, submit, or delete records.
 
 ---
 

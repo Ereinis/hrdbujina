@@ -38,6 +38,10 @@ import { initFirebase } from '../js/firebase.js';
         <div class="stat-label">Disciplinary Cases</div>
       </div>
       <div class="stat-card">
+        <div class="stat-value" id="stat-interviews">—</div>
+        <div class="stat-label">Interviews</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-value" id="stat-recent">—</div>
         <div class="stat-label">Cases This Month</div>
       </div>
@@ -83,13 +87,15 @@ import { initFirebase } from '../js/firebase.js';
 
   // Load stats
   try {
-    const [transSnap, casesSnap] = await Promise.all([
+    const [transSnap, casesSnap, interviewsSnap] = await Promise.all([
       db.collection('transcripts').get(),
-      db.collection('disciplinary_cases').get()
+      db.collection('disciplinary_cases').get(),
+      db.collection('interviews').get()
     ]);
 
     document.getElementById('stat-transcripts').textContent = transSnap.size;
     document.getElementById('stat-cases').textContent = casesSnap.size;
+    document.getElementById('stat-interviews').textContent = interviewsSnap.size;
 
     const thisMonth = new Date();
     thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
@@ -140,15 +146,17 @@ import { initFirebase } from '../js/firebase.js';
   }
 
   // Access badges
-  const { ROLES, CAN_MANAGE_TRANSCRIPTS, CAN_DELETE_CASES } = await import('../js/config.js');
+  const { CAN_MANAGE_TRANSCRIPTS, CAN_DELETE_CASES, CAN_SUBMIT_CASES, CAN_ADD_INTERVIEWS, CAN_DELETE_INTERVIEWS } = await import('../js/config.js');
   const { hasPermission } = await import('../js/auth.js');
   const badges = document.getElementById('access-badges');
   const perms = [
     ['View Transcripts', true],
     ['Upload Transcripts', hasPermission(session, CAN_MANAGE_TRANSCRIPTS)],
     ['Delete Transcripts', hasPermission(session, CAN_MANAGE_TRANSCRIPTS)],
-    ['Submit Disciplinary', true],
+    ['Submit Disciplinary', hasPermission(session, CAN_SUBMIT_CASES)],
     ['Delete Cases', hasPermission(session, CAN_DELETE_CASES)],
+    ['Log Interviews', hasPermission(session, CAN_ADD_INTERVIEWS)],
+    ['Delete Interviews', hasPermission(session, CAN_DELETE_INTERVIEWS)],
   ];
   badges.innerHTML = perms.map(([label, allowed]) => `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;

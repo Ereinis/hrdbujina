@@ -55,7 +55,7 @@
 import { initLayout } from '../js/layout.js';
 import { initFirebase } from '../js/firebase.js';
 import { hasPermission } from '../js/auth.js';
-import { CAN_DELETE_CASES } from '../js/config.js';
+import { CAN_DELETE_CASES, CAN_SUBMIT_CASES } from '../js/config.js';
 import { toast } from '../js/toast.js';
 
 const ACTION_TYPES = [
@@ -92,11 +92,13 @@ try {
   ({ db } = await initFirebase());
 
   const canDelete = hasPermission(session, CAN_DELETE_CASES);
+  const canSubmit = hasPermission(session, CAN_SUBMIT_CASES);
   const caseId = generateCaseId();
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-grid">
+    <div class="${canSubmit ? 'page-grid' : ''}">
       <!-- FORM -->
+      ${canSubmit ? `
       <div class="card" style="position:sticky;top:80px;">
         <div class="card-header" style="margin-bottom:24px;">
           <div>
@@ -146,6 +148,7 @@ try {
           </button>
         </div>
       </div>
+      ` : ''}
 
       <!-- TABLE -->
       <div class="card">
@@ -178,8 +181,10 @@ try {
     </div>
   `;
 
-  setupMultiSelect();
-  setupForm(caseId);
+  if (canSubmit) {
+    setupMultiSelect();
+    setupForm(caseId);
+  }
   await loadCases();
 
   document.getElementById('case-search').addEventListener('input', e => {
