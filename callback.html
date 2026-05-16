@@ -55,8 +55,6 @@
   <div class="status" id="status">Verifying your Discord account…</div>
 
   <script type="module">
-    import { fetchAndValidate, saveSession } from './js/auth.js';
-
     const setStatus = (msg) => { document.getElementById('status').textContent = msg; };
 
     async function handleCallback() {
@@ -76,13 +74,17 @@
       }
 
       try {
+        setStatus('Loading portal configuration...');
+        const { fetchAndValidate, saveSession } = await import('./js/auth.js');
         setStatus('Fetching your guild membership…');
         const session = await fetchAndValidate(token);
         saveSession(session);
         setStatus('Access granted! Redirecting…');
         window.location.href = 'pages/dashboard.html';
       } catch (err) {
-        if (err.message === 'NO_HR_ROLE') {
+        if (err.name === 'AbortError') {
+          showError('Discord took too long to respond. Refresh and try again.');
+        } else if (err.message === 'NO_HR_ROLE') {
           showError('You do not have the <strong>Human Resources</strong> role in the server. Access denied.');
         } else if (err.message === 'NO_RANK_ROLE') {
           showError('No valid HR rank role found on your account. Contact a President or Vice President.');

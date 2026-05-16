@@ -16,7 +16,6 @@ export const REDIRECT_URI = `${SITE_BASE}/callback.html`;
 // Discord Guild (Server) ID — right-click server icon > Copy Server ID
 export const GUILD_ID = '1446923448822665380';
 
-export const GITHUB_UPLOAD_ENDPOINT = 'https://hrdb-upload-worker.ereinishaxhia74.workers.dev';
 // ------- FIREBASE -------
 // 1. Go to https://console.firebase.google.com
 // 2. Create project → Web app → copy config below
@@ -34,7 +33,7 @@ export const FIREBASE_CONFIG = {
 // Transcript files are committed to your GitHub repository through a private
 // upload endpoint. Do not put a GitHub token in this public website.
 // Example: 'https://hrdb-github-uploader.yourname.workers.dev'
-export const GITHUB_UPLOAD_ENDPOINT = '';
+export const GITHUB_UPLOAD_ENDPOINT = 'https://hrdb-upload-worker.ereinishaxhia74.workers.dev';
 
 // ------- ROLES -------
 export const ROLES = {

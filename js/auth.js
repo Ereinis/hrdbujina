@@ -19,9 +19,14 @@ export function isLoggedIn() { return !!getSession(); }
 
 // ---- DISCORD API ----
 async function discordFetch(endpoint, token) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
   const res = await fetch(`https://discord.com/api/v10${endpoint}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+    headers: { Authorization: `Bearer ${token}` },
+    signal: controller.signal
+  }).finally(() => clearTimeout(timeout));
+
   if (!res.ok) throw new Error(`Discord API error ${res.status}`);
   return res.json();
 }
