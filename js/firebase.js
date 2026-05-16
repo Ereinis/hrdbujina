@@ -9,25 +9,21 @@ const loadScript = (src) => new Promise((res, rej) => {
 });
 
 let _db = null;
-let _storage = null;
 let _initialized = false;
 
 export async function initFirebase() {
-  if (_initialized) return { db: _db, storage: _storage };
+  if (_initialized) return { db: _db };
 
   await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
   await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
-  await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js');
 
   if (!firebase.apps.length) {
     firebase.initializeApp(FIREBASE_CONFIG);
   }
-  _db      = firebase.firestore();
-  _storage = firebase.storage();
+  _db = firebase.firestore();
   _initialized = true;
 
-  return { db: _db, storage: _storage };
+  return { db: _db };
 }
 
-export function getDb()      { return _db; }
-export function getStorage() { return _storage; }
+export function getDb() { return _db; }

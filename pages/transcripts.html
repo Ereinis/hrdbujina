@@ -26,16 +26,17 @@ import { initLayout } from '../js/layout.js';
 import { initFirebase } from '../js/firebase.js';
 import { hasPermission } from '../js/auth.js';
 import { CAN_MANAGE_TRANSCRIPTS } from '../js/config.js';
+import { uploadTranscriptFile, deleteTranscriptFile } from '../js/repositoryStorage.js';
 import { toast } from '../js/toast.js';
 
-let session, db, storage;
+let session, db;
 let allFiles = [];
 
 (async () => {
   session = await initLayout('Ticket Transcripts', 'transcripts');
   if (!session) return;
 
-  ({ db, storage } = await initFirebase());
+  ({ db } = await initFirebase());
 
   const canManage = hasPermission(session, CAN_MANAGE_TRANSCRIPTS);
 
@@ -68,7 +69,7 @@ let allFiles = [];
     <div class="modal-overlay hidden" id="upload-modal">
       <div class="modal">
         <div class="modal-title">Upload Transcript</div>
-        <div class="modal-body">Select a file to upload. It will be stored permanently in the database.</div>
+        <div class="modal-body">Select a file to upload. It will be committed to the GitHub repository.</div>
 
         <div class="upload-zone" id="drop-zone">
           <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -171,7 +172,7 @@ function renderFiles(files) {
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8M4 10l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 14h12" stroke-linecap="round"/></svg>
           Download
         </a>
-        ${canManage ? `<button class="btn btn-danger btn-sm delete-file-btn" data-id="${f.id}" data-url="${escHtml(f.storagePath||'')}">
+        ${canManage ? `<button class="btn btn-danger btn-sm delete-file-btn" data-id="${f.id}" data-path="${escHtml(f.repoPath||'')}" data-sha="${escHtml(f.repoSha||'')}">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Delete
         </button>` : ''}
@@ -180,13 +181,13 @@ function renderFiles(files) {
   }).join('')}</div>`;
 
   document.querySelectorAll('.delete-file-btn').forEach(btn => {
-    btn.addEventListener('click', () => openDeleteModal(btn.dataset.id, btn.dataset.url));
+    btn.addEventListener('click', () => openDeleteModal(btn.dataset.id, btn.dataset.path, btn.dataset.sha));
   });
 }
 
 let deleteTarget = null;
-function openDeleteModal(id, storagePath) {
-  deleteTarget = { id, storagePath };
+function openDeleteModal(id, repoPath, repoSha) {
+  deleteTarget = { id, repoPath, repoSha };
   document.getElementById('delete-modal').classList.remove('hidden');
   document.getElementById('cancel-delete').onclick = () => {
     document.getElementById('delete-modal').classList.add('hidden');
@@ -195,10 +196,10 @@ function openDeleteModal(id, storagePath) {
   document.getElementById('confirm-delete').onclick = async () => {
     if (!deleteTarget) return;
     try {
-      await db.collection('transcripts').doc(deleteTarget.id).delete();
-      if (deleteTarget.storagePath) {
-        await storage.ref(deleteTarget.storagePath).delete().catch(() => {});
+      if (deleteTarget.repoPath) {
+        await deleteTranscriptFile(deleteTarget.repoPath, deleteTarget.repoSha);
       }
+      await db.collection('transcripts').doc(deleteTarget.id).delete();
       toast('Transcript deleted.', 'success');
       document.getElementById('delete-modal').classList.add('hidden');
       deleteTarget = null;
@@ -253,16 +254,16 @@ function setupUploadUI() {
     confirmBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Uploading…';
 
     try {
-      const storagePath = `transcripts/${Date.now()}_${selectedFile.name}`;
-      const ref = storage.ref(storagePath);
-      await ref.put(selectedFile);
-      const downloadUrl = await ref.getDownloadURL();
+      const uploaded = await uploadTranscriptFile(selectedFile, session);
 
       await db.collection('transcripts').add({
         filename:    selectedFile.name,
         size:        selectedFile.size,
-        storagePath,
-        downloadUrl,
+        repoPath:    uploaded.path,
+        repoSha:     uploaded.sha,
+        downloadUrl: uploaded.downloadUrl,
+        htmlUrl:     uploaded.htmlUrl,
+        storageProvider: 'github',
         description: document.getElementById('file-desc').value.trim(),
         uploadedBy:  session.username,
         uploaderId:  session.id,

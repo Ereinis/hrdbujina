@@ -48,8 +48,7 @@ hr-portal/
 2. Create a new project
 3. Add a **Web App** (click `</>` icon) — copy the config object
 4. Go to **Firestore Database** → Create database → **Native mode**
-5. Go to **Storage** → Get started
-6. Set Firestore rules (for development — tighten for production):
+5. Set Firestore rules (for development — tighten for production):
    ```
    rules_version = '2';
    service cloud.firestore {
@@ -60,17 +59,7 @@ hr-portal/
      }
    }
    ```
-7. Set Storage rules:
-   ```
-   rules_version = '2';
-   service firebase.storage {
-     match /b/{bucket}/o {
-       match /{allPaths=**} {
-         allow read, write: if true;
-       }
-     }
-   }
-   ```
+Firebase Storage is not required. Transcript files are committed to the GitHub repository instead.
 
 ---
 
@@ -89,6 +78,8 @@ export const FIREBASE_CONFIG = {
   authDomain: '...',
   // etc.
 };
+
+export const GITHUB_UPLOAD_ENDPOINT = 'https://YOUR-WORKER-URL.workers.dev';
 ```
 
 **How to find your Guild ID:** Right-click your server icon in Discord → Copy Server ID  
@@ -102,6 +93,33 @@ export const FIREBASE_CONFIG = {
 2. Go to **Settings → Pages**
 3. Source: **Deploy from branch** → `main` / `root`
 4. Your site will be at: `https://YOUR-USERNAME.github.io/YOUR-REPO-NAME/`
+
+---
+
+## Step 5 — GitHub Transcript Uploads
+
+The public website must not contain a GitHub token. Use the included `github-upload-worker.js` as a private upload endpoint, then set `GITHUB_UPLOAD_ENDPOINT` in `js/config.js`.
+
+Deploy the worker with these environment variables:
+
+| Variable | Value |
+|----------|-------|
+| `GITHUB_TOKEN` | Fine-grained GitHub token with **Contents: Read and write** for this repository |
+| `GITHUB_OWNER` | Your GitHub username or organization |
+| `GITHUB_REPO` | Repository name |
+| `GITHUB_BRANCH` | Usually `main` |
+| `PUBLIC_BASE` | `https://YOUR-USERNAME.github.io/YOUR-REPO-NAME` |
+| `ALLOWED_ORIGIN` | `https://YOUR-USERNAME.github.io` |
+| `GITHUB_COMMIT_EMAIL` | Email used for upload commits |
+| `DISCORD_GUILD_ID` | Your Discord server ID |
+| `HR_ROLE` | Human Resources role ID |
+| `ALLOWED_UPLOAD_ROLES` | Comma-separated role IDs allowed to upload/delete transcripts |
+
+Uploaded transcript files will be committed under:
+
+```
+transcripts/
+```
 
 ---
 

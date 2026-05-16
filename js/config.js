@@ -16,20 +16,25 @@ export const REDIRECT_URI = `${SITE_BASE}/callback.html`;
 // Discord Guild (Server) ID — right-click server icon > Copy Server ID
 export const GUILD_ID = '1446923448822665380';
 
+export const GITHUB_UPLOAD_ENDPOINT = 'https://hrdb-upload-worker.ereinishaxhia74.workers.dev';
 // ------- FIREBASE -------
 // 1. Go to https://console.firebase.google.com
 // 2. Create project → Web app → copy config below
-// 3. Enable Firestore (Native mode) and Storage
-// 4. Storage Rules: allow read,write if request.auth == null (or set up properly)
-// 5. Firestore Rules: allow read, write: if true; (for dev; tighten for prod)
+// 3. Enable Firestore (Native mode)
+// 4. Firestore Rules: allow read, write: if true; (for dev; tighten for prod)
 export const FIREBASE_CONFIG = {
   apiKey:            'AIzaSyDv3ZTsZF2uv1k23ZoTVxeZCY_4nvbKUPQ',
   authDomain:        'hrdbujina-51c19.firebaseapp.com',
   projectId:         'hrdbujina-51c19',
-  storageBucket:     'hrdbujina-51c19.firebasestorage.app',
   messagingSenderId: '378360844659',
   appId:             '1:378360844659:web:6c71d185498ceaf5d1f506'
 };
+
+// ------- GITHUB REPOSITORY STORAGE -------
+// Transcript files are committed to your GitHub repository through a private
+// upload endpoint. Do not put a GitHub token in this public website.
+// Example: 'https://hrdb-github-uploader.yourname.workers.dev'
+export const GITHUB_UPLOAD_ENDPOINT = '';
 
 // ------- ROLES -------
 export const ROLES = {
