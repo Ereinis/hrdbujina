@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard — HR Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+</head>
+<body>
+<script type="module">
+import { initLayout } from '../js/layout.js';
+import { initFirebase } from '../js/firebase.js';
+
+(async () => {
+  const session = await initLayout('Dashboard', 'dashboard');
+  if (!session) return;
+
+  const { db } = await initFirebase();
+
+  const content = document.getElementById('page-content');
+  content.innerHTML = `
+    <div style="margin-bottom:28px;">
+      <h2 style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin-bottom:4px;">
+        Welcome back, ${escHtml(session.username)} 👋
+      </h2>
+      <p style="color:var(--text-muted);font-size:14px;">Here's an overview of HR department activity.</p>
+    </div>
+
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-transcripts">—</div>
+        <div class="stat-label">Ticket Transcripts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-cases">—</div>
+        <div class="stat-label">Disciplinary Cases</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-recent">—</div>
+        <div class="stat-label">Cases This Month</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Recent Disciplinary Cases</div>
+            <div class="card-subtitle">Last 5 submitted</div>
+          </div>
+          <a href="disciplinary.html" class="btn btn-ghost btn-sm">View all</a>
+        </div>
+        <div id="recent-cases">
+          <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">
+            <div class="spinner" style="margin:0 auto 10px;"></div>Loading…
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Recent Transcripts</div>
+            <div class="card-subtitle">Last 5 uploaded</div>
+          </div>
+          <a href="transcripts.html" class="btn btn-ghost btn-sm">View all</a>
+        </div>
+        <div id="recent-transcripts">
+          <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">
+            <div class="spinner" style="margin:0 auto 10px;"></div>Loading…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px;">
+      <div class="card-title" style="margin-bottom:16px;">Your Access Level</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;" id="access-badges"></div>
+    </div>
+  `;
+
+  // Load stats
+  try {
+    const [transSnap, casesSnap] = await Promise.all([
+      db.collection('transcripts').get(),
+      db.collection('disciplinary_cases').get()
+    ]);
+
+    document.getElementById('stat-transcripts').textContent = transSnap.size;
+    document.getElementById('stat-cases').textContent = casesSnap.size;
+
+    const thisMonth = new Date();
+    thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
+    const recent = casesSnap.docs.filter(d => {
+      const ts = d.data().createdAt?.toDate?.() || new Date(0);
+      return ts >= thisMonth;
+    });
+    document.getElementById('stat-recent').textContent = recent.size ?? recent.length;
+
+    // Recent cases
+    const cases = casesSnap.docs
+      .sort((a,b) => (b.data().createdAt?.seconds||0) - (a.data().createdAt?.seconds||0))
+      .slice(0,5);
+    document.getElementById('recent-cases').innerHTML = cases.length ? `
+      <table class="data-table">
+        <thead><tr><th>Case ID</th><th>Member</th><th>Action</th></tr></thead>
+        <tbody>${cases.map(d => {
+          const data = d.data();
+          const actions = (data.actions||[]).join(', ');
+          return `<tr>
+            <td><span class="mono" style="font-size:11px;color:var(--accent);">${escHtml(data.caseId||d.id)}</span></td>
+            <td style="color:var(--text-primary);">${escHtml(data.memberId||'—')}</td>
+            <td><span class="badge badge-warning">${escHtml(actions.substring(0,30))}${actions.length>30?'…':''}</span></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    ` : '<div class="empty-state"><p>No cases yet.</p></div>';
+
+    // Recent transcripts
+    const transcripts = transSnap.docs
+      .sort((a,b) => (b.data().uploadedAt?.seconds||0) - (a.data().uploadedAt?.seconds||0))
+      .slice(0,5);
+    document.getElementById('recent-transcripts').innerHTML = transcripts.length ? `
+      <table class="data-table">
+        <thead><tr><th>Filename</th><th>Uploaded by</th></tr></thead>
+        <tbody>${transcripts.map(d => {
+          const data = d.data();
+          return `<tr>
+            <td style="color:var(--text-primary);">${escHtml(data.filename||'Unknown')}</td>
+            <td style="color:var(--text-muted);">${escHtml(data.uploadedBy||'—')}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    ` : '<div class="empty-state"><p>No transcripts yet.</p></div>';
+
+  } catch(e) {
+    console.error(e);
+  }
+
+  // Access badges
+  const { ROLES, CAN_MANAGE_TRANSCRIPTS, CAN_DELETE_CASES } = await import('../js/config.js');
+  const { hasPermission } = await import('../js/auth.js');
+  const badges = document.getElementById('access-badges');
+  const perms = [
+    ['View Transcripts', true],
+    ['Upload Transcripts', hasPermission(session, CAN_MANAGE_TRANSCRIPTS)],
+    ['Delete Transcripts', hasPermission(session, CAN_MANAGE_TRANSCRIPTS)],
+    ['Submit Disciplinary', true],
+    ['Delete Cases', hasPermission(session, CAN_DELETE_CASES)],
+  ];
+  badges.innerHTML = perms.map(([label, allowed]) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;
+      background:${allowed?'var(--accent-glow)':'rgba(239,68,68,0.08)'};
+      border:1px solid ${allowed?'var(--border-strong)':'rgba(239,68,68,0.2)'};
+      border-radius:8px;font-size:12px;
+      color:${allowed?'var(--accent)':'#f87171'};">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
+        ${allowed
+          ? '<path d="M2 7l3 3 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+          : '<path d="M2 2l9 9M11 2l-9 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>'}
+      </svg>
+      ${label}
+    </div>
+  `).join('');
+})();
+
+function escHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+</script>
+</body>
+</html>

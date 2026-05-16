@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Disciplinary Actions — HR Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .page-grid { display:grid; grid-template-columns:400px 1fr; gap:24px; align-items:start; }
+    @media(max-width:1100px) { .page-grid { grid-template-columns:1fr; } }
+
+    /* Custom multi-select styles */
+    .ms-container { position:relative; }
+    .ms-display {
+      background:var(--surface-2);border:1px solid var(--border);border-radius:10px;
+      padding:8px 10px;min-height:46px;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s;
+      display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+    }
+    .ms-display:focus, .ms-display.open { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow); }
+    .ms-placeholder { color:var(--text-muted);font-size:14px;padding:2px 4px; }
+    .ms-tag {
+      display:inline-flex;align-items:center;gap:5px;
+      background:var(--accent-glow);border:1px solid var(--border-strong);
+      border-radius:6px;padding:3px 8px;font-size:11px;color:var(--accent);font-weight:500;
+    }
+    .ms-tag-x { background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px;line-height:1;padding:0; }
+    .ms-dropdown {
+      position:absolute;top:calc(100% + 4px);left:0;right:0;
+      background:var(--surface-2);border:1px solid var(--border-strong);border-radius:10px;
+      z-index:300;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.5);max-height:260px;overflow-y:auto;
+    }
+    .ms-opt {
+      padding:10px 14px;font-size:13px;color:var(--text-secondary);
+      cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.1s;
+      user-select:none;
+    }
+    .ms-opt:hover { background:var(--surface-3); }
+    .ms-opt.selected { color:var(--accent); }
+    .ms-opt .ms-check { width:16px;height:16px;border:1.5px solid var(--border-strong);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center; }
+    .ms-opt.selected .ms-check { background:var(--accent);border-color:var(--accent);color:#0b0d08; }
+
+    .action-type-badge {
+      display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;
+      font-family:'DM Mono',monospace;letter-spacing:0.5px;
+    }
+    .action-warning { background:rgba(245,158,11,0.12);color:var(--warning);border:1px solid rgba(245,158,11,0.2); }
+    .action-ban { background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.2); }
+    .action-other { background:var(--accent-glow);color:var(--accent);border:1px solid var(--border-strong); }
+  </style>
+</head>
+<body>
+<script type="module">
+import { initLayout } from '../js/layout.js';
+import { initFirebase } from '../js/firebase.js';
+import { hasPermission } from '../js/auth.js';
+import { CAN_DELETE_CASES } from '../js/config.js';
+import { toast } from '../js/toast.js';
+
+const ACTION_TYPES = [
+  'Verbal Warning','Warning I','Warning II','Warning III',
+  'Mute','Kick','Suspension','Appealable Ban','Temporary Ban','Permanent Ban'
+];
+
+function actionBadgeClass(a) {
+  if (a.includes('Ban')) return 'action-ban';
+  if (a.includes('Warning') || a==='Mute'||a==='Kick'||a==='Suspension') return 'action-warning';
+  return 'action-other';
+}
+
+function generateCaseId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const rand = Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+  const ts = Date.now().toString(36).toUpperCase().slice(-4);
+  return `CASE-${ts}-${rand}`;
+}
+
+function escHtml(str) {
+  return String(str||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+let session, db;
+let selectedActions = [];
+let allCases = [];
+
+(async () => {
+  session = await initLayout('Disciplinary Actions', 'disciplinary');
+  if (!session) return;
+
+  ({ db } = await initFirebase());
+
+  const canDelete = hasPermission(session, CAN_DELETE_CASES);
+  const caseId = generateCaseId();
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-grid">
+      <!-- FORM -->
+      <div class="card" style="position:sticky;top:80px;">
+        <div class="card-header" style="margin-bottom:24px;">
+          <div>
+            <div class="card-title">New Disciplinary Action</div>
+            <div class="card-subtitle">All fields are required</div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:18px;">
+          <div class="form-group">
+            <label class="form-label">Case ID</label>
+            <input type="text" class="form-input readonly" id="case-id-field" value="${escHtml(caseId)}" readonly>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Member User ID <span class="req">*</span></label>
+            <input type="text" class="form-input" id="member-id" placeholder="e.g. 1234567890">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Type of Disciplinary Action <span class="req">*</span></label>
+            <div class="ms-container">
+              <div class="ms-display" id="ms-display" tabindex="0">
+                <span class="ms-placeholder" id="ms-placeholder">Select action types…</span>
+              </div>
+              <div class="ms-dropdown hidden" id="ms-dropdown">
+                ${ACTION_TYPES.map((a,i) => `
+                  <div class="ms-opt" data-value="${escHtml(a)}" data-idx="${i}">
+                    <span class="ms-check">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5 3.5-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    ${escHtml(a)}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Reason for Disciplinary Action <span class="req">*</span></label>
+            <textarea class="form-textarea" id="reason-field" placeholder="Describe the reason for this disciplinary action in detail…"></textarea>
+          </div>
+
+          <button class="btn btn-primary" id="submit-btn" style="margin-top:4px;">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8h12M10 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Submit Case
+          </button>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Disciplinary Cases</div>
+            <div class="card-subtitle" id="case-count">Loading…</div>
+          </div>
+          <input type="text" id="case-search" class="form-input" placeholder="Search cases…" style="width:200px;padding:8px 12px;font-size:13px;">
+        </div>
+        <div id="cases-table-wrap">
+          <div style="text-align:center;padding:32px;color:var(--text-muted);">
+            <div class="spinner" style="margin:0 auto 12px;"></div>
+            <p style="font-size:13px;">Loading cases…</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    <div class="modal-overlay hidden" id="delete-modal">
+      <div class="modal">
+        <div class="modal-title" style="color:var(--danger);">Delete Case</div>
+        <div class="modal-body">This will permanently delete the case record. Only Presidents and Vice Presidents may delete cases. This action cannot be undone.</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="cancel-delete">Cancel</button>
+          <button class="btn btn-danger" id="confirm-delete">Delete Case</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setupMultiSelect();
+  setupForm(caseId);
+  await loadCases();
+
+  document.getElementById('case-search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    renderCases(allCases.filter(c =>
+      c.caseId?.toLowerCase().includes(q) ||
+      c.memberId?.toLowerCase().includes(q) ||
+      (c.actions||[]).join(' ').toLowerCase().includes(q) ||
+      c.reason?.toLowerCase().includes(q)
+    ));
+  });
+})();
+
+// ---- MULTISELECT ----
+function setupMultiSelect() {
+  const display = document.getElementById('ms-display');
+  const dropdown = document.getElementById('ms-dropdown');
+  const placeholder = document.getElementById('ms-placeholder');
+
+  display.addEventListener('click', () => {
+    dropdown.classList.toggle('hidden');
+    display.classList.toggle('open');
+  });
+
+  document.addEventListener('click', e => {
+    if (!display.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.add('hidden');
+      display.classList.remove('open');
+    }
+  });
+
+  dropdown.querySelectorAll('.ms-opt').forEach(opt => {
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      const val = opt.dataset.value;
+      if (selectedActions.includes(val)) {
+        selectedActions = selectedActions.filter(a => a !== val);
+        opt.classList.remove('selected');
+      } else {
+        selectedActions.push(val);
+        opt.classList.add('selected');
+      }
+      renderTags();
+    });
+  });
+}
+
+function renderTags() {
+  const display = document.getElementById('ms-display');
+  const placeholder = document.getElementById('ms-placeholder');
+  // Remove old tags
+  display.querySelectorAll('.ms-tag').forEach(t => t.remove());
+
+  if (!selectedActions.length) {
+    placeholder.style.display = '';
+  } else {
+    placeholder.style.display = 'none';
+    selectedActions.forEach(a => {
+      const tag = document.createElement('span');
+      tag.className = 'ms-tag';
+      tag.innerHTML = `${escHtml(a)}<button class="ms-tag-x" title="Remove">×</button>`;
+      tag.querySelector('.ms-tag-x').addEventListener('click', ev => {
+        ev.stopPropagation();
+        selectedActions = selectedActions.filter(x => x !== a);
+        document.querySelector(`.ms-opt[data-value="${a}"]`)?.classList.remove('selected');
+        renderTags();
+      });
+      display.appendChild(tag);
+    });
+  }
+}
+
+// ---- FORM SUBMIT ----
+function setupForm(caseId) {
+  document.getElementById('submit-btn').addEventListener('click', async () => {
+    const memberId = document.getElementById('member-id').value.trim();
+    const reason   = document.getElementById('reason-field').value.trim();
+
+    if (!memberId) { toast('Please enter a Member User ID.', 'error'); return; }
+    if (!selectedActions.length) { toast('Please select at least one action type.', 'error'); return; }
+    if (!reason) { toast('Please provide a reason.', 'error'); return; }
+
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Submitting…';
+
+    try {
+      await db.collection('disciplinary_cases').add({
+        caseId,
+        memberId,
+        actions: selectedActions,
+        reason,
+        submittedBy: session.username,
+        submitterId: session.id,
+        submitterRole: session.roleName,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      toast('Case submitted successfully!', 'success');
+      // Reset form with new ID
+      const newId = generateCaseId();
+      document.getElementById('case-id-field').value = newId;
+      document.getElementById('member-id').value = '';
+      document.getElementById('reason-field').value = '';
+      selectedActions = [];
+      renderTags();
+      document.querySelectorAll('.ms-opt').forEach(o => o.classList.remove('selected'));
+      setupForm(newId); // re-bind with new ID
+      await loadCases();
+    } catch(e) {
+      toast('Failed to submit: ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8h12M10 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg> Submit Case`;
+  });
+}
+
+// ---- LOAD CASES ----
+async function loadCases() {
+  try {
+    const snap = await db.collection('disciplinary_cases').orderBy('createdAt', 'desc').get();
+    allCases = snap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+    document.getElementById('case-count').textContent = `${allCases.length} case${allCases.length !== 1 ? 's' : ''} total`;
+    renderCases(allCases);
+  } catch(e) {
+    document.getElementById('cases-table-wrap').innerHTML = `<div class="empty-state"><p>Error: ${e.message}</p></div>`;
+  }
+}
+
+function renderCases(cases) {
+  const canDelete = hasPermission(session, CAN_DELETE_CASES);
+  const wrap = document.getElementById('cases-table-wrap');
+
+  if (!cases.length) {
+    wrap.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 4L4 10v12c0 8 6.5 14 16 16 9.5-2 16-8 16-16V10L20 4z" stroke-linecap="round"/><path d="M14 20l4 4 8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <p>No disciplinary cases found.</p>
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Case ID</th>
+            <th>Member ID</th>
+            <th>Action(s)</th>
+            <th>Reason</th>
+            <th>Submitted by</th>
+            <th>Date</th>
+            ${canDelete ? '<th></th>' : ''}
+          </tr>
+        </thead>
+        <tbody>
+          ${cases.map(c => {
+            const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(0);
+            const dateStr = date.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+            const actions = c.actions || [];
+
+            return `<tr>
+              <td><span class="mono" style="font-size:11px;color:var(--accent);">${escHtml(c.caseId||c._docId)}</span></td>
+              <td style="color:var(--text-primary);font-family:'DM Mono',monospace;font-size:12px;">${escHtml(c.memberId)}</td>
+              <td style="max-width:180px;">
+                <div style="display:flex;flex-wrap:wrap;gap:3px;">
+                  ${actions.map(a => `<span class="action-type-badge ${actionBadgeClass(a)}">${escHtml(a)}</span>`).join('')}
+                </div>
+              </td>
+              <td style="color:var(--text-muted);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(c.reason)}">${escHtml(c.reason)}</td>
+              <td><span style="font-size:12px;color:var(--text-secondary);">${escHtml(c.submittedBy||'—')}</span><br><span style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;">${escHtml(c.submitterRole||'')}</span></td>
+              <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${dateStr}</td>
+              ${canDelete ? `<td><button class="btn btn-danger btn-sm delete-case-btn" data-id="${c._docId}">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Delete
+              </button></td>` : ''}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.querySelectorAll('.delete-case-btn').forEach(btn => {
+    btn.addEventListener('click', () => openDeleteModal(btn.dataset.id));
+  });
+}
+
+let deleteTargetId = null;
+function openDeleteModal(docId) {
+  deleteTargetId = docId;
+  const modal = document.getElementById('delete-modal');
+  modal.classList.remove('hidden');
+  document.getElementById('cancel-delete').onclick = () => { modal.classList.add('hidden'); deleteTargetId = null; };
+  document.getElementById('confirm-delete').onclick = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await db.collection('disciplinary_cases').doc(deleteTargetId).delete();
+      toast('Case deleted.', 'success');
+      modal.classList.add('hidden');
+      deleteTargetId = null;
+      await loadCases();
+    } catch(e) {
+      toast('Failed: ' + e.message, 'error');
+    }
+  };
+}
+
+function escHtml(str) {
+  return String(str||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+function generateCaseId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const rand = Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+  const ts = Date.now().toString(36).toUpperCase().slice(-4);
+  return `CASE-${ts}-${rand}`;
+}
+</script>
+</body>
+</html>

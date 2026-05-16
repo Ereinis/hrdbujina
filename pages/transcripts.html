@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ticket Transcripts — HR Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .file-row { display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); transition:border-color 0.15s; }
+    .file-row:hover { border-color: var(--border-strong); }
+    .file-icon { width:38px;height:38px;background:var(--accent-glow);border:1px solid var(--border-strong);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+    .file-icon svg { width:18px;height:18px;color:var(--accent); }
+    .file-meta { flex:1;min-width:0; }
+    .file-name { font-size:14px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .file-info { font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:0.5px;margin-top:2px; }
+    .file-actions { display:flex;gap:8px;flex-shrink:0; }
+    .files-list { display:flex;flex-direction:column;gap:10px; }
+    #upload-modal .form-group + .form-group { margin-top:16px; }
+  </style>
+</head>
+<body>
+<script type="module">
+import { initLayout } from '../js/layout.js';
+import { initFirebase } from '../js/firebase.js';
+import { hasPermission } from '../js/auth.js';
+import { CAN_MANAGE_TRANSCRIPTS } from '../js/config.js';
+import { toast } from '../js/toast.js';
+
+let session, db, storage;
+let allFiles = [];
+
+(async () => {
+  session = await initLayout('Ticket Transcripts', 'transcripts');
+  if (!session) return;
+
+  ({ db, storage } = await initFirebase());
+
+  const canManage = hasPermission(session, CAN_MANAGE_TRANSCRIPTS);
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Ticket Transcripts</div>
+          <div class="card-subtitle">HR ticket logs stored permanently</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="text" id="search-input" class="form-input" placeholder="Search files…" style="width:220px;padding:8px 12px;font-size:13px;">
+          ${canManage ? `<button class="btn btn-primary" id="upload-btn">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v8M4 6l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h12" stroke-linecap="round"/></svg>
+            Upload File
+          </button>` : ''}
+        </div>
+      </div>
+
+      <div id="file-list-wrap">
+        <div style="text-align:center;padding:32px;color:var(--text-muted);">
+          <div class="spinner" style="margin:0 auto 12px;"></div>
+          <p style="font-size:13px;">Loading transcripts…</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Modal -->
+    ${canManage ? `
+    <div class="modal-overlay hidden" id="upload-modal">
+      <div class="modal">
+        <div class="modal-title">Upload Transcript</div>
+        <div class="modal-body">Select a file to upload. It will be stored permanently in the database.</div>
+
+        <div class="upload-zone" id="drop-zone">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M16 4v16M8 12l8-8 8 8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 24h24" stroke-linecap="round"/>
+          </svg>
+          <p><strong>Click to browse</strong> or drag &amp; drop</p>
+          <p style="font-size:12px;margin-top:4px;">Any file type accepted</p>
+          <input type="file" id="file-input" style="display:none">
+        </div>
+
+        <div id="selected-file" style="margin-top:12px;display:none;padding:10px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-secondary);"></div>
+
+        <div class="form-group" style="margin-top:16px;">
+          <label class="form-label">Description <span style="color:var(--text-muted)">(optional)</span></label>
+          <input type="text" class="form-input" id="file-desc" placeholder="Brief description of this transcript…">
+        </div>
+
+        <div class="modal-actions" style="margin-top:24px;">
+          <button class="btn btn-ghost" id="cancel-upload">Cancel</button>
+          <button class="btn btn-primary" id="confirm-upload" disabled>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v8M4 6l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h12" stroke-linecap="round"/></svg>
+            Upload
+          </button>
+        </div>
+      </div>
+    </div>
+    ` : ''}
+
+    <!-- Delete Confirm Modal -->
+    <div class="modal-overlay hidden" id="delete-modal">
+      <div class="modal">
+        <div class="modal-title" style="color:var(--danger);">Delete Transcript</div>
+        <div class="modal-body">Are you sure you want to permanently delete this file? This action cannot be undone.</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="cancel-delete">Cancel</button>
+          <button class="btn btn-danger" id="confirm-delete">Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await loadFiles();
+
+  // Search
+  document.getElementById('search-input').addEventListener('input', (e) => renderFiles(
+    allFiles.filter(f => f.filename.toLowerCase().includes(e.target.value.toLowerCase()))
+  ));
+
+  if (canManage) setupUploadUI();
+})();
+
+async function loadFiles() {
+  try {
+    const snap = await db.collection('transcripts').orderBy('uploadedAt', 'desc').get();
+    allFiles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderFiles(allFiles);
+  } catch(e) {
+    document.getElementById('file-list-wrap').innerHTML = `
+      <div class="empty-state"><p>Error loading files: ${e.message}</p></div>
+    `;
+  }
+}
+
+function renderFiles(files) {
+  const canManage = hasPermission(session, CAN_MANAGE_TRANSCRIPTS);
+  const wrap = document.getElementById('file-list-wrap');
+
+  if (!files.length) {
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M10 6h15l8 8v22H10V6z" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M25 6v8h8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p>No transcripts found.</p>
+      </div>
+    `;
+    return;
+  }
+
+  wrap.innerHTML = `<div class="files-list">${files.map(f => {
+    const date = f.uploadedAt?.toDate ? f.uploadedAt.toDate() : new Date(f.uploadedAt || 0);
+    const dateStr = date.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+    const sizeStr = f.size ? formatBytes(f.size) : 'Unknown size';
+
+    return `<div class="file-row" data-id="${f.id}">
+      <div class="file-icon">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 2h8l4 4v11a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke-linecap="round"/>
+          <path d="M12 2v4h4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="file-meta">
+        <div class="file-name">${escHtml(f.filename)}</div>
+        <div class="file-info">${sizeStr} · Uploaded by ${escHtml(f.uploadedBy||'Unknown')} · ${dateStr}${f.description ? ` · ${escHtml(f.description)}` : ''}</div>
+      </div>
+      <div class="file-actions">
+        <a href="${f.downloadUrl}" target="_blank" class="btn btn-ghost btn-sm">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8M4 10l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 14h12" stroke-linecap="round"/></svg>
+          Download
+        </a>
+        ${canManage ? `<button class="btn btn-danger btn-sm delete-file-btn" data-id="${f.id}" data-url="${escHtml(f.storagePath||'')}">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Delete
+        </button>` : ''}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+
+  document.querySelectorAll('.delete-file-btn').forEach(btn => {
+    btn.addEventListener('click', () => openDeleteModal(btn.dataset.id, btn.dataset.url));
+  });
+}
+
+let deleteTarget = null;
+function openDeleteModal(id, storagePath) {
+  deleteTarget = { id, storagePath };
+  document.getElementById('delete-modal').classList.remove('hidden');
+  document.getElementById('cancel-delete').onclick = () => {
+    document.getElementById('delete-modal').classList.add('hidden');
+    deleteTarget = null;
+  };
+  document.getElementById('confirm-delete').onclick = async () => {
+    if (!deleteTarget) return;
+    try {
+      await db.collection('transcripts').doc(deleteTarget.id).delete();
+      if (deleteTarget.storagePath) {
+        await storage.ref(deleteTarget.storagePath).delete().catch(() => {});
+      }
+      toast('Transcript deleted.', 'success');
+      document.getElementById('delete-modal').classList.add('hidden');
+      deleteTarget = null;
+      await loadFiles();
+    } catch(e) {
+      toast('Failed to delete: ' + e.message, 'error');
+    }
+  };
+}
+
+function setupUploadUI() {
+  const uploadBtn = document.getElementById('upload-btn');
+  const modal = document.getElementById('upload-modal');
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const confirmBtn = document.getElementById('confirm-upload');
+  const cancelBtn = document.getElementById('cancel-upload');
+  let selectedFile = null;
+
+  uploadBtn.addEventListener('click', () => modal.classList.remove('hidden'));
+  cancelBtn.addEventListener('click', () => { modal.classList.add('hidden'); resetUpload(); });
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    handleFile(e.dataTransfer.files[0]);
+  });
+
+  function handleFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    document.getElementById('selected-file').style.display = 'block';
+    document.getElementById('selected-file').textContent = `${file.name} (${formatBytes(file.size)})`;
+    confirmBtn.disabled = false;
+  }
+
+  function resetUpload() {
+    selectedFile = null;
+    fileInput.value = '';
+    document.getElementById('selected-file').style.display = 'none';
+    document.getElementById('file-desc').value = '';
+    confirmBtn.disabled = true;
+  }
+
+  confirmBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Uploading…';
+
+    try {
+      const storagePath = `transcripts/${Date.now()}_${selectedFile.name}`;
+      const ref = storage.ref(storagePath);
+      await ref.put(selectedFile);
+      const downloadUrl = await ref.getDownloadURL();
+
+      await db.collection('transcripts').add({
+        filename:    selectedFile.name,
+        size:        selectedFile.size,
+        storagePath,
+        downloadUrl,
+        description: document.getElementById('file-desc').value.trim(),
+        uploadedBy:  session.username,
+        uploaderId:  session.id,
+        uploadedAt:  firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      toast('Transcript uploaded successfully!', 'success');
+      modal.classList.add('hidden');
+      resetUpload();
+      await loadFiles();
+    } catch(e) {
+      toast('Upload failed: ' + e.message, 'error');
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v8M4 6l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h12" stroke-linecap="round"/></svg> Upload`;
+    }
+  });
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function escHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+</script>
+</body>
+</html>
