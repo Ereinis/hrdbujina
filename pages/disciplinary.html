@@ -85,6 +85,7 @@ let selectedActions = [];
 let allCases = [];
 
 (async () => {
+try {
   session = await initLayout('Disciplinary Actions', 'disciplinary');
   if (!session) return;
 
@@ -190,6 +191,9 @@ let allCases = [];
       c.reason?.toLowerCase().includes(q)
     ));
   });
+} catch (e) {
+  document.body.innerHTML = `<div class="empty-state" style="padding:48px;"><p>Failed to load disciplinary page: ${escHtml(e.message)}</p></div>`;
+}
 })();
 
 // ---- MULTISELECT ----
@@ -253,6 +257,7 @@ function renderTags() {
 
 // ---- FORM SUBMIT ----
 function setupForm(caseId) {
+  let currentCaseId = caseId;
   document.getElementById('submit-btn').addEventListener('click', async () => {
     const memberId = document.getElementById('member-id').value.trim();
     const reason   = document.getElementById('reason-field').value.trim();
@@ -267,7 +272,7 @@ function setupForm(caseId) {
 
     try {
       await db.collection('disciplinary_cases').add({
-        caseId,
+        caseId: currentCaseId,
         memberId,
         actions: selectedActions,
         reason,
@@ -280,13 +285,13 @@ function setupForm(caseId) {
       toast('Case submitted successfully!', 'success');
       // Reset form with new ID
       const newId = generateCaseId();
+      currentCaseId = newId;
       document.getElementById('case-id-field').value = newId;
       document.getElementById('member-id').value = '';
       document.getElementById('reason-field').value = '';
       selectedActions = [];
       renderTags();
       document.querySelectorAll('.ms-opt').forEach(o => o.classList.remove('selected'));
-      setupForm(newId); // re-bind with new ID
       await loadCases();
     } catch(e) {
       toast('Failed to submit: ' + e.message, 'error');
@@ -388,15 +393,6 @@ function openDeleteModal(docId) {
   };
 }
 
-function escHtml(str) {
-  return String(str||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-}
-function generateCaseId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const rand = Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
-  const ts = Date.now().toString(36).toUpperCase().slice(-4);
-  return `CASE-${ts}-${rand}`;
-}
 </script>
 </body>
 </html>

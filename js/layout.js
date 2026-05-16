@@ -32,7 +32,7 @@ export async function initLayout(pageTitle, activeNav) {
           </div>
           <div class="brand">
             <span class="brand-name">HR Portal</span>
-            <span class="brand-sub">Roblox Café</span>
+            <span class="brand-sub">Ujina</span>
           </div>
         </div>
 
